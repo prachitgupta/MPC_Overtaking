@@ -37,11 +37,11 @@ if __name__ == '__main__':
         
                                 ##define state
     ##KBM for robot, curvature for human
-    xrel = ca.SX.sym('xrel')
-    yrel = ca.SX.sym('yrel')
-    yawrel = ca.SX.sym('yawrel')
-    vrobot = ca.SX.sym('vrobot')
-    vhuman  = ca.SX.sym('vhuman')
+    xrel = ca.MX.sym('xrel')
+    yrel = ca.MX.sym('yrel')
+    yawrel = ca.MX.sym('yawrel')
+    vrobot = ca.MX.sym('vrobot')
+    vhuman  = ca.MX.sym('vhuman')
     
     
     states = ca.vertcat(xrel, yrel)

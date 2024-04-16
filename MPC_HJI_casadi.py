@@ -20,73 +20,125 @@ def shift_movement(T, t0, x0, u, x_f, f): ##time step, cureent time,current pos,
 
     return t, st, u_end, x_f ##st is precisly what i needed
 
+def simulate_human_motion(states, dt):
+    # Define symbolic variables
+    x, y, theta, v = states[0], states[1], states[2], states[3]
+    # Constant velocity (no acceleration)
+    a = 0.0
+    # Extended unicycle model dynamics
+    L = 1.735  # Wheelbase length
+    dxdt = v * ca.cos(theta)
+    dydt = v * ca.sin(theta)
+    dthetadt = 0.0  # No change in heading angle
+    dvdt = 0.0  # Constant velocity
+    # Update the state using Euler integration
+    x_new = x + dxdt * dt
+    y_new = y + dydt * dt
+    theta_new = theta + dthetadt * dt
+    v_new = v + dvdt * dt
+    # Return the updated state
+    return ca.vertcat(x_new, y_new, theta_new, v_new)
 
 if __name__ == '__main__':
     T = 0.2  # sampling time [s]
     N = 100  # prediction horizon
     rob_diam = 0.3  # [m]
     ##control limits
-    v_max = 0.6
-    omega_max = np.pi/4.0
+    a_max = 4
+    delF_max = np.pi/4
+    lf,lr = 1.105,1.738
     
     ##load lookup table
     with open("lookup_table2.pkl", "rb") as f:
-        lookup_table_loaded = pickle.load(f)
+        lookup_table = pickle.load(f)
         
                                 ##define state
-    #z = MX.sym("state_vector",4,1)  ##not specifically designed for numeric computation
-    #u = MX.sym("control_v",2,1)
-    x = ca.SX.sym('x')
-    y = ca.SX.sym('y')
-    # v = ca.SX.sym('v')
-    # yaw = ca.SX.sym('yaw')
-    # states = ca.vertcat(x, y)
-    # states = ca.vertcat(states, v)
-    # states = ca.vertcat(states, yaw)
-    theta = ca.SX.sym('theta')
-    states = ca.vertcat(x, y)
-    states = ca.vertcat(states, theta)
-    states = ca.vcat([x, y, theta])
-    #  states = ca.vcat([x, y, v, yaw]) 
+    x = ca.MX.sym('x')
+    y = ca.MX.sym('y')
+    theta = ca.MX.sym('theta')
+    v = ca.MX.sym('v')
+    
+    states = ca.vcat([x, y,theta,v])
+
     ##DIMENSION
     n_states = states.size()[0]
 
                                 ##define control
-    v = ca.SX.sym('v')
-    omega = ca.SX.sym('omega')
-    controls = ca.vertcat(v, omega)
+    a = ca.MX.sym('a')
+    delF = ca.MX.sym('delF')
+    controls = ca.vcat([a, delF])
     n_controls = controls.size()[0]
+    
+                               ##SLIP ANGLE
+    Br =  ca.atan((lr/(lf+lr))*ca.tan(delF)) 
 
-    ###dynamics how they will propgate
-    rhs = ca.vertcat(v*ca.cos(theta), v*ca.sin(theta))
-    rhs = ca.vertcat(rhs, omega)
+    ###dynamics how they will propgate 4d kbm
+    rhs = ca.vertcat(v*ca.cos(theta + Br), v*ca.sin(theta + Br))
+    rhs = ca.vertcat(rhs, v*ca.tan(Br)/lr)
+    rhs = ca.vertcat(rhs, a)
 
     # function
     ##f(x,u) can be non linear
     f = ca.Function('f', [states, controls], [rhs], [
                     'input_state', 'control_input'], ['rhs'])
-
+    
+    
+    # Define initial state
+    xh0 = 0.0
+    yh0 = 0.0
+    thetah0 = 0.0
+    vh0 = 5.0  # Initial velocity (m/s)
+    statesh0 = ca.vertcat(xh0, yh0, thetah0, vh0)
+    
+                    ##define relative state 
+    xrel= ca.MX.sym('xrel')
+    yrel = ca.MX.sym('yrel')
+    thetarel = ca.MX.sym('thetarel')
+    vr = ca.MX.sym('vr')
+    vh = ca.MX.sym('vh')
+    
+  
+    
     # for MPC
-    U = ca.SX.sym('U', n_controls, N)
+    U = ca.MX.sym('U', n_controls, N)
 
-    X = ca.SX.sym('X', n_states, N+1)
+    X = ca.MX.sym('X', n_states, N+1)
 
-    P = ca.SX.sym('P', n_states+n_states) ##initial state and final state param 
+    P = ca.MX.sym('P', n_states+n_states) ##initial state and final state param 
+    
 
     # define
-    Q = np.array([[1.0, 0.0, 0.0], [0.0, 5.0, 0.0], [0.0, 0.0, .1]])
-    R = np.array([[0.5, 0.0], [0.0, 0.05]])
+    Q = np.array([[1.0, 0.0], [0.0, .1]])
+    R = np.array([[10, 0.0, 0.0, 0.0], [0.0, 10.0, 0.0, 0.0], [0.0, 0.0, 10.0, 0.0], [0.0, 0.0, 0.0, 10.0]])
     # cost function
     obj = 0  # cost
     g = []  # equal constrains
     
-    g.append(X[:, 0]-P[:3]) ##initial condition
+    g.append(X[:, 0]-P[:4]) ##initial condition
+    
+    statesH = statesh0
     for i in range(N):
-        ##import value function somehow
+        ##human motion simulate
+        statesH = simulate_human_motion(statesH,T)
+        
+        ##calculate relative dynamics
+        ##rotation transformation
+        xrel = ca.cos(X[2,i]) * (statesH[0] - X[0,i]) + ca.sin(X[2,i])*(statesH[1] - X[1,i])
+        yrel = -ca.sin(X[2,i]) * (statesH[0] - X[0,i]) + ca.cos(X[2,i])*(statesH[1] - X[1,i])        
+        ##append omega rel , vr and vh
+        thetarel = statesH[2] - X[2,i]
+        vr = X[3,i]
+        vh = statesH[3]
+        statesRel = ca.vcat([xrel,yrel,thetarel,vr,vh])
+        #print(statesRel.size()[0])
+        ##value at xrel
+        value = lookup_table(statesRel)
         
         ##obj penalizes deviation from final state (soften) and control
-        obj = obj + ca.mtimes([(X[:, i]-P[3:]).T, Q, X[:, i]-P[3:]]
-                              ) + ca.mtimes([U[:, i].T, R, U[:, i]])
+        obj = obj + ca.mtimes([(X[:, i]-P[4:]).T, R, X[:, i]-P[4:]]
+                              ) + ca.mtimes([U[:, i].T, Q, U[:, i]])  
+        ##value function appended
+        obj = obj + value + 1/value 
         ##dynamics
         x_next_ = f(X[:, i], U[:, i])*T + X[:, i] ##xt+1 = xdot * T + xt
         g.append(X[:, i+1]-x_next_)
@@ -107,38 +159,41 @@ if __name__ == '__main__':
 
     ## bound constarinst on u
     for _ in range(N):
-        lbx.append(-v_max)
-        lbx.append(-omega_max)
-        ubx.append(v_max)
-        ubx.append(omega_max)
+        lbx.append(-a_max)
+        lbx.append(-delF_max)
+        ubx.append(a_max)
+        ubx.append(delF_max)
         
     ##bound constarints on x
     for _ in range(N+1):  # note that this is different with the method using structure
-        lbx.append(-2.0)
-        lbx.append(-2.0)
         lbx.append(-np.inf)
-        ubx.append(2.0)
-        ubx.append(2.0)
+        lbx.append(-5.0)
+        lbx.append(-np.pi)
+        lbx.append(0.0)
         ubx.append(np.inf)
+        ubx.append(5.0)
+        ubx.append(np.pi)
+        ubx.append(20)
+        
 
     # Simulation define params
     t0 = 0.0
     ##initial state
-    x0 = np.array([0.0, 0.0, 0.0]).reshape(-1, 1)  # initial state
+    x0 = np.array([-15.0, 0.0, 0.0, 0.0]).reshape(-1, 1)  # initial state
     x0_ = x0.copy() ##fixed
     ##store next states 
     x_m = np.zeros((n_states, N+1))
     next_states = x_m.copy().T
     
     ##destination soft constraint
-    xs = np.array([1.5, 1.5, 0.0]).reshape(-1, 1)  # final state
+    xs = np.array([15, 0.5, 0.0,0.0]).reshape(-1, 1)  # final state
     ##idk maybe initial control
-    u0 = np.array([1, 2]*N).reshape(-1, 2).T  # np.ones((N, 2)) # controls
+    u0 = np.array([1, 0]*N).reshape(-1, 2).T  # np.ones((N, 2)) # controls
     x_c = []  # contains for the history of the state
     u_c = []
     t_c = []  # for the time
     xx = [] ##robot state
-    sim_time = 20.0
+    sim_time = 200.0
 
     # start MPC
     mpciter = 0
@@ -186,4 +241,4 @@ if __name__ == '__main__':
     ##to do add plots for visulation (best case trajecory on a heat map)
 
     draw_result = Draw_MPC_point_stabilization_v1(
-        rob_diam=0.3, init_state=x0_, target_state=xs, robot_states=xx)
+        rob_diam=2, init_state=x0_, target_state=xs, robot_states=xx)

@@ -24,7 +24,7 @@ def shift_movement(T, t0, x0, u, x_f, f): ##time step, cureent time,current pos,
 if __name__ == '__main__':
     T = 0.2  # sampling time [s]
     N = 100  # prediction horizon
-    rob_diam = 0.3  # [m]
+    rob_diam = 4  # [m]
     ##control limits
     a_max = 4
     delF_max = np.pi/4
@@ -62,11 +62,11 @@ if __name__ == '__main__':
                     'input_state', 'control_input'], ['rhs'])
 
     # for MPC
-    U = ca.SX.sym('U', n_controls, N)
+    U = ca.MX.sym('U', n_controls, N)
 
-    X = ca.SX.sym('X', n_states, N+1)
+    X = ca.MX.sym('X', n_states, N+1)
 
-    P = ca.SX.sym('P', n_states+n_states) ##initial state and final state param 
+    P = ca.MX.sym('P', n_states+n_states) ##initial state and final state param 
 
     # define
     Q = np.array([[1.0, 0.0], [0.0, .1]])
@@ -122,14 +122,14 @@ if __name__ == '__main__':
     # Simulation define params
     t0 = 0.0
     ##initial state
-    x0 = np.array([0.0, 0.0, 0.0, 0.0]).reshape(-1, 1)  # initial state
+    x0 = np.array([-15.0, 0.0, 0.0, 0.0]).reshape(-1, 1)  # initial state
     x0_ = x0.copy() ##fixed
     ##store next states 
     x_m = np.zeros((n_states, N+1))
     next_states = x_m.copy().T
     
     ##destination soft constraint
-    xs = np.array([3, 1, 0.0,0.0]).reshape(-1, 1)  # final state
+    xs = np.array([15, 0.5, 0.0,0.0]).reshape(-1, 1)  # final state
     ##idk maybe initial control
     u0 = np.array([1, 0]*N).reshape(-1, 2).T  # np.ones((N, 2)) # controls
     x_c = []  # contains for the history of the state
@@ -144,7 +144,7 @@ if __name__ == '__main__':
     index_t = []
     # inital test
 
-    while(np.linalg.norm(x0-xs) > 1e-2 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal
+    while(np.linalg.norm(x0-xs) > 1e-1 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal
         # set parameter
         c_p = np.concatenate((x0, xs)) ##parameter storing initial and final state (initial updates and final fixed)
         init_control = np.concatenate((u0.reshape(-1, 1), next_states.reshape(-1, 1)))
@@ -184,4 +184,4 @@ if __name__ == '__main__':
     ##to do add plots for visulation (best case trajecory on a heat map)
 
     draw_result = Draw_MPC_point_stabilization_v1(
-        rob_diam=0.3, init_state=x0_, target_state=xs, robot_states=xx)
+        rob_diam=4, init_state=x0_, target_state=xs, robot_states=xx)
