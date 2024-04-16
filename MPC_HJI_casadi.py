@@ -66,7 +66,7 @@ if __name__ == '__main__':
     a_max = 4
     delF_max = np.pi/4
     lf,lr = 1.105,1.738
-    toleranceValue = 1.5
+    toleranceValue = 1
     
     ##load lookup table (function outputs value at a given relative state)
     with open("lookup_table2.pkl", "rb") as f:
@@ -107,7 +107,7 @@ if __name__ == '__main__':
     xh0 = 0.0
     yh0 = 0.0
     thetah0 = 0.0
-    vh0 = 0.7  # Initial velocity (m/s)
+    vh0 = 1  # Initial velocity (m/s)
     statesh0 = ca.vertcat(xh0, yh0, thetah0, vh0)
     
                     ##define relative state 
@@ -158,7 +158,7 @@ if __name__ == '__main__':
         value = lookup_table(statesRel)
         ##constraint value
         ##TOdo convert in inequality constraint  (currently only on decesion variable)
-        g.append(value-1) ##Inequality constraint value - 1 >= 0 ##2nd
+        g.append(value-toleranceValue) ##Inequality constraint value - 1 >= 0 ##2nd
         ##obj penalizes deviation from final state (soften) and control
         obj = obj + ca.mtimes([(X[:, i]-P[4:]).T, R, X[:, i]-P[4:]]
                               ) + ca.mtimes([U[:, i].T, Q, U[:, i]])  
@@ -221,8 +221,8 @@ if __name__ == '__main__':
     # Simulation define params
     t0 = 0.0
     ##initial state
-    x0 = np.array([-15.0, 0.0, 0, 3]).reshape(-1, 1)  # initial state 
-    x_h0 = np.array([0.0, 0.0, 0, 0.7]).reshape(-1, 1)  ##initial human for animation
+    x0 = np.array([-15.0, 0.0, 0,3]).reshape(-1, 1)  # initial state 
+    x_h0 = np.array([0.0, 0.0, 0, 1]).reshape(-1, 1)  ##initial human for animation
     x0_ = x0.copy() ##fixed
     ##store next states 
     x_m = np.zeros((n_states, N+1))
@@ -246,7 +246,7 @@ if __name__ == '__main__':
     h0 =x_h0 #initialized human pose for simulation
     # inital test
 
-    while(np.linalg.norm(x0-xs) > 0.1 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal (can be softened)
+    while(np.linalg.norm(x0-xs) > 0.3 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal (can be softened)
         # set parameter
         c_p = np.concatenate((x0, xs)) ##parameter storing initial and final state (initial updates and final fixed)
         init_control = np.concatenate((u0.reshape(-1, 1), next_states.reshape(-1, 1)))
