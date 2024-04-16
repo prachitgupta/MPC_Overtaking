@@ -47,7 +47,7 @@ def simulate_human_motion(states, dt):
 x0 = 0.0
 y0 = 0.0
 theta0 = 0.0
-v0 = 1  # Initial velocity (m/s)
+v0 = 0.7  # Initial velocity (m/s)
 p0 = 0
 states0 = ca.vertcat(0, 0, theta0, v0,p0)
 

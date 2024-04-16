@@ -113,7 +113,8 @@ class Draw_MPC_Overtaking(object):
         robot_orientation = self.robot_states[indx][2]
         human_position = self.human_states[indx][:2]
         human_orientation = self.human_states[indx][2]
-        
+        plt.plot(robot_position[0],robot_position[1],"red")
+        plt.plot(human_position[0],human_position[1],"red")
         self.robot_body.center = robot_position
         self.robot_arr.remove()
         self.robot_arr = mpatches.Arrow(robot_position[0], robot_position[1], self.rob_radius * np.cos(robot_orientation), self.rob_radius * np.sin(robot_orientation), width=0.2, color='r')

@@ -66,6 +66,7 @@ if __name__ == '__main__':
     a_max = 4
     delF_max = np.pi/4
     lf,lr = 1.105,1.738
+    toleranceValue = 1.5
     
     ##load lookup table (function outputs value at a given relative state)
     with open("lookup_table2.pkl", "rb") as f:
@@ -106,7 +107,7 @@ if __name__ == '__main__':
     xh0 = 0.0
     yh0 = 0.0
     thetah0 = 0.0
-    vh0 = 1  # Initial velocity (m/s)
+    vh0 = 0.7  # Initial velocity (m/s)
     statesh0 = ca.vertcat(xh0, yh0, thetah0, vh0)
     
                     ##define relative state 
@@ -133,7 +134,7 @@ if __name__ == '__main__':
     obj = 0  # cost
     g = []  # equal constrains
     
-    g.append(X[:, 0]-P[:4]) ##initial condition
+    g.append(X[:, 0]-P[:4]) ##initial condition #1st
     
     statesH = statesh0
     for i in range(N):
@@ -148,23 +149,25 @@ if __name__ == '__main__':
         yrel = -ca.sin(X[2,i]) * (-statesH[0] + X[0,i]) + ca.cos(X[2,i])*(-statesH[1] + X[1,i])  
              
         ##append omega rel , vr and vh
-        thetarel = statesH[2] - X[2,i]
+        thetarel = -statesH[2] + X[2,i]
         vr = X[3,i]
         vh = statesH[3]
         statesRel = ca.vcat([xrel,yrel,thetarel,vr,vh])
         #print(statesRel.size()[0])
         ##value at xrel
         value = lookup_table(statesRel)
-    
+        ##constraint value
+        ##TOdo convert in inequality constraint  (currently only on decesion variable)
+        g.append(value-1) ##Inequality constraint value - 1 >= 0 ##2nd
         ##obj penalizes deviation from final state (soften) and control
         obj = obj + ca.mtimes([(X[:, i]-P[4:]).T, R, X[:, i]-P[4:]]
                               ) + ca.mtimes([U[:, i].T, Q, U[:, i]])  
         ##value function appended
-        obj = obj + value  
+        obj = obj + value 
         #obj = obj + value + 1/value
         ##dynamics
         x_next_ = f(X[:, i], U[:, i])*T + X[:, i] ##xt+1 = xdot * T + xt
-        g.append(X[:, i+1]-x_next_)
+        g.append(X[:, i+1]-x_next_) ##3rd
     
     ##define solver
     opt_variables = ca.vertcat(ca.reshape(U, -1, 1), ca.reshape(X, -1, 1))
@@ -174,9 +177,11 @@ if __name__ == '__main__':
                     'ipopt.acceptable_tol': 1e-8, 'ipopt.acceptable_obj_change_tol': 1e-6}
 
     solver = ca.nlpsol('solver', 'ipopt', nlp_prob, opts_setting)
-
-    lbg = 0.0
-    ubg = 0.0
+    
+    ##bound g constraints both 0 so equality
+    lbg = []
+    ubg = []  ##value funct inequality
+    ##bound decesion variables
     lbx = []
     ubx = []
 
@@ -197,36 +202,51 @@ if __name__ == '__main__':
         ubx.append(5.0)
         ubx.append(np.pi)
         ubx.append(30)
+    
+    ##lower bound other constraints
+    for _ in range(4):
+        ##bounds for g.append(X[:, 0]-P[:4])
+        lbg.append(0)
+        ubg.append(0)
+    for _ in range(N):
+        ##bounds for g.append(value-tolerance)
+        lbg.append(0)
+        ubg.append(np.inf) ##inequality constraint on value
+        for _ in range(4):
+            ##bounds for g.append(X[:, i+1]-x_next_)
+            lbg.append(0)
+            ubg.append(0)
         
 
     # Simulation define params
     t0 = 0.0
     ##initial state
-    x0 = np.array([-15.0, 0.0, 0, 8]).reshape(-1, 1)  # initial state
-    x_h0 = np.array([0.0, 0.0, 0, 1]).reshape(-1, 1)  ##human for animation
+    x0 = np.array([-15.0, 0.0, 0, 3]).reshape(-1, 1)  # initial state 
+    x_h0 = np.array([0.0, 0.0, 0, 0.7]).reshape(-1, 1)  ##initial human for animation
     x0_ = x0.copy() ##fixed
     ##store next states 
     x_m = np.zeros((n_states, N+1))
     next_states = x_m.copy().T
     
     ##destination soft constraint
-    xs = np.array([25, 0.0, 0.0,0.0]).reshape(-1, 1)  # final state
+    xs = np.array([20, 0.0, 0.0,0.0]).reshape(-1, 1)  # final state (xrel = 15)
     ##idk maybe initial control
     u0 = np.array([1, 0]*N).reshape(-1, 2).T  # np.ones((N, 2)) # controls
     x_c = []  # contains for the history of the state
     u_c = []
     t_c = []  # for the time
     xx = [] ##robot state
-    h = [] ##human  state
-    sim_time = 200.0
+    h = [] ##human  state for animation
+    sim_time = 30.0
 
     # start MPC
     mpciter = 0
     start_time = time.time()
     index_t = []
+    h0 =x_h0 #initialized human pose for simulation
     # inital test
 
-    while(np.linalg.norm(x0-xs) > 0.3 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal (can be softened)
+    while(np.linalg.norm(x0-xs) > 0.1 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal (can be softened)
         # set parameter
         c_p = np.concatenate((x0, xs)) ##parameter storing initial and final state (initial updates and final fixed)
         init_control = np.concatenate((u0.reshape(-1, 1), next_states.reshape(-1, 1)))
@@ -258,13 +278,14 @@ if __name__ == '__main__':
         x0 = x0.full()
         xx.append(x0) ##this is precisley how he moves
         ##HUMAN STATE FOR SIMUALTION
-        h0 = move_human(x_h0,T)
+        h0 = move_human(h0,0.2)
         h.append(h0)
         # print(u0[0])
         mpciter = mpciter + 1
     t_v = np.array(index_t)
     print(t_v.mean())
     print((time.time() - start_time)/(mpciter))
+    
     
     ##to do add plots for visulation (best case trajecory on a heat map)
     
