@@ -27,7 +27,7 @@ if __name__ == '__main__':
     rob_diam = 0.3  # [m]
     ##control limits
     a_max = 4
-    delF_max = 0.17
+    delF_max = np.pi/4
     
     ##load lookup table
     with open("lookup_table2.pkl", "rb") as f:
@@ -51,7 +51,7 @@ if __name__ == '__main__':
     n_controls = controls.size()[0]
 
     ###dynamics how they will propgate 4d kbm
-    L = 1.105
+    L = 1.735
     rhs = ca.vertcat(v*ca.cos(theta), v*ca.sin(theta))
     rhs = ca.vertcat(rhs, v*ca.tan(delF)/L)
     rhs = ca.vertcat(rhs, a)
@@ -129,14 +129,14 @@ if __name__ == '__main__':
     next_states = x_m.copy().T
     
     ##destination soft constraint
-    xs = np.array([2.5, 0.5, 0.0,0.0]).reshape(-1, 1)  # final state
+    xs = np.array([3, 1, 0.0,0.0]).reshape(-1, 1)  # final state
     ##idk maybe initial control
     u0 = np.array([1, 0]*N).reshape(-1, 2).T  # np.ones((N, 2)) # controls
     x_c = []  # contains for the history of the state
     u_c = []
     t_c = []  # for the time
     xx = [] ##robot state
-    sim_time = 100.0
+    sim_time = 200.0
 
     # start MPC
     mpciter = 0
@@ -144,7 +144,7 @@ if __name__ == '__main__':
     index_t = []
     # inital test
 
-    while(np.linalg.norm(x0-xs) > 1e-3 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal
+    while(np.linalg.norm(x0-xs) > 1e-2 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal
         # set parameter
         c_p = np.concatenate((x0, xs)) ##parameter storing initial and final state (initial updates and final fixed)
         init_control = np.concatenate((u0.reshape(-1, 1), next_states.reshape(-1, 1)))
