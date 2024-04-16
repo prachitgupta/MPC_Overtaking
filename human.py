@@ -47,7 +47,7 @@ def simulate_human_motion(states, dt):
 x0 = 0.0
 y0 = 0.0
 theta0 = 0.0
-v0 = 5.0  # Initial velocity (m/s)
+v0 = 1  # Initial velocity (m/s)
 p0 = 0
 states0 = ca.vertcat(0, 0, theta0, v0,p0)
 
@@ -61,6 +61,6 @@ states = states0
 for _ in range(num_steps):
     states = simulate_human_motion(states, dt)
     value = lookup_table(states)
-    print(value)
+    print(states)
 
-print("Final state after simulation:", value)
+print("Final state after simulation:", states)

@@ -6,7 +6,7 @@ import casadi.tools as ca_tools
 import pickle
 import numpy as np
 import time
-from draw import Draw_MPC_point_stabilization_v1
+from draw import *
 
 def shift_movement(T, t0, x0, u, x_f, f): ##time step, cureent time,current pos, control prediction,state prediction and dynamics
     f_value = f(x0, u[0, :]) ##Xdot  ##exected only once
@@ -19,6 +19,25 @@ def shift_movement(T, t0, x0, u, x_f, f): ##time step, cureent time,current pos,
     x_f = np.concatenate((x_f[1:], x_f[-1:]), axis=0)
 
     return t, st, u_end, x_f ##st is precisly what i needed
+
+def move_human(states,dt):
+    x, y, theta, v = states[0], states[1], states[2], states[3]
+    # Constant velocity (no acceleration)
+    a = 0.0
+    # Extended unicycle model dynamics
+    L = 1.735  # Wheelbase length
+    dxdt = v * np.cos(theta)
+    dydt = v * np.sin(theta)
+    dthetadt = 0.0  # No change in heading angle
+    dvdt = 0.0  # Constant velocity
+    # Update the state using Euler integration
+    x_new = x + dxdt * dt
+    y_new = y + dydt * dt
+    theta_new = theta + dthetadt * dt
+    v_new = v + dvdt * dt
+    # Return the updated state
+    return np.array([x_new, y_new, theta_new, v_new]).reshape(-1,1)
+    
 
 def simulate_human_motion(states, dt):
     # Define symbolic variables
@@ -37,18 +56,18 @@ def simulate_human_motion(states, dt):
     theta_new = theta + dthetadt * dt
     v_new = v + dvdt * dt
     # Return the updated state
-    return ca.vertcat(x_new, y_new, theta_new, v_new)
+    return (x_new, y_new, theta_new, v_new)
 
 if __name__ == '__main__':
     T = 0.2  # sampling time [s]
     N = 100  # prediction horizon
-    rob_diam = 0.3  # [m]
+    rob_diam = 0.3  # [m] ##animation purpose only
     ##control limits
     a_max = 4
     delF_max = np.pi/4
     lf,lr = 1.105,1.738
     
-    ##load lookup table
+    ##load lookup table (function outputs value at a given relative state)
     with open("lookup_table2.pkl", "rb") as f:
         lookup_table = pickle.load(f)
         
@@ -78,16 +97,16 @@ if __name__ == '__main__':
     rhs = ca.vertcat(rhs, a)
 
     # function
-    ##f(x,u) can be non linear
+    ##Xdot = f(x,u) can be non linear
     f = ca.Function('f', [states, controls], [rhs], [
                     'input_state', 'control_input'], ['rhs'])
     
     
-    # Define initial state
+    # Define initial state for human
     xh0 = 0.0
     yh0 = 0.0
     thetah0 = 0.0
-    vh0 = 5.0  # Initial velocity (m/s)
+    vh0 = 1  # Initial velocity (m/s)
     statesh0 = ca.vertcat(xh0, yh0, thetah0, vh0)
     
                     ##define relative state 
@@ -108,8 +127,8 @@ if __name__ == '__main__':
     
 
     # define
-    Q = np.array([[1.0, 0.0], [0.0, .1]])
-    R = np.array([[10, 0.0, 0.0, 0.0], [0.0, 10.0, 0.0, 0.0], [0.0, 0.0, 10.0, 0.0], [0.0, 0.0, 0.0, 10.0]])
+    Q = np.array([[1.0, 0.0], [0.0, 1]])
+    R = np.array([[10, 0.0, 0.0, 0.0], [0.0, 10.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]])
     # cost function
     obj = 0  # cost
     g = []  # equal constrains
@@ -118,13 +137,16 @@ if __name__ == '__main__':
     
     statesH = statesh0
     for i in range(N):
-        ##human motion simulate
+        ##human motion simulate (constant velocity of 8m/s)
         statesH = simulate_human_motion(statesH,T)
         
         ##calculate relative dynamics
-        ##rotation transformation
-        xrel = ca.cos(X[2,i]) * (statesH[0] - X[0,i]) + ca.sin(X[2,i])*(statesH[1] - X[1,i])
-        yrel = -ca.sin(X[2,i]) * (statesH[0] - X[0,i]) + ca.cos(X[2,i])*(statesH[1] - X[1,i])        
+        ##rotation transformation (Karen Leung paper section 5.3)
+        # xrel = ca.cos(X[2,i]) * (statesH[0] - X[0,i]) + ca.sin(X[2,i])*(statesH[1] - X[1,i])
+        # yrel = -ca.sin(X[2,i]) * (statesH[0] - X[0,i]) + ca.cos(X[2,i])*(statesH[1] - X[1,i]) 
+        xrel = ca.cos(X[2,i]) * (-statesH[0] + X[0,i]) + ca.sin(X[2,i])*(-statesH[1] + X[1,i])
+        yrel = -ca.sin(X[2,i]) * (-statesH[0] + X[0,i]) + ca.cos(X[2,i])*(-statesH[1] + X[1,i])  
+             
         ##append omega rel , vr and vh
         thetarel = statesH[2] - X[2,i]
         vr = X[3,i]
@@ -133,12 +155,13 @@ if __name__ == '__main__':
         #print(statesRel.size()[0])
         ##value at xrel
         value = lookup_table(statesRel)
-        
+    
         ##obj penalizes deviation from final state (soften) and control
         obj = obj + ca.mtimes([(X[:, i]-P[4:]).T, R, X[:, i]-P[4:]]
                               ) + ca.mtimes([U[:, i].T, Q, U[:, i]])  
         ##value function appended
-        obj = obj + value + 1/value 
+        obj = obj + value  
+        #obj = obj + value + 1/value
         ##dynamics
         x_next_ = f(X[:, i], U[:, i])*T + X[:, i] ##xt+1 = xdot * T + xt
         g.append(X[:, i+1]-x_next_)
@@ -165,7 +188,7 @@ if __name__ == '__main__':
         ubx.append(delF_max)
         
     ##bound constarints on x
-    for _ in range(N+1):  # note that this is different with the method using structure
+    for _ in range(N+1):  
         lbx.append(-np.inf)
         lbx.append(-5.0)
         lbx.append(-np.pi)
@@ -173,26 +196,28 @@ if __name__ == '__main__':
         ubx.append(np.inf)
         ubx.append(5.0)
         ubx.append(np.pi)
-        ubx.append(20)
+        ubx.append(30)
         
 
     # Simulation define params
     t0 = 0.0
     ##initial state
-    x0 = np.array([-15.0, 0.0, 0.0, 0.0]).reshape(-1, 1)  # initial state
+    x0 = np.array([-15.0, 0.0, 0, 8]).reshape(-1, 1)  # initial state
+    x_h0 = np.array([0.0, 0.0, 0, 1]).reshape(-1, 1)  ##human for animation
     x0_ = x0.copy() ##fixed
     ##store next states 
     x_m = np.zeros((n_states, N+1))
     next_states = x_m.copy().T
     
     ##destination soft constraint
-    xs = np.array([15, 0.5, 0.0,0.0]).reshape(-1, 1)  # final state
+    xs = np.array([25, 0.0, 0.0,0.0]).reshape(-1, 1)  # final state
     ##idk maybe initial control
     u0 = np.array([1, 0]*N).reshape(-1, 2).T  # np.ones((N, 2)) # controls
     x_c = []  # contains for the history of the state
     u_c = []
     t_c = []  # for the time
     xx = [] ##robot state
+    h = [] ##human  state
     sim_time = 200.0
 
     # start MPC
@@ -201,7 +226,7 @@ if __name__ == '__main__':
     index_t = []
     # inital test
 
-    while(np.linalg.norm(x0-xs) > 1e-2 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal
+    while(np.linalg.norm(x0-xs) > 0.3 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal (can be softened)
         # set parameter
         c_p = np.concatenate((x0, xs)) ##parameter storing initial and final state (initial updates and final fixed)
         init_control = np.concatenate((u0.reshape(-1, 1), next_states.reshape(-1, 1)))
@@ -232,6 +257,9 @@ if __name__ == '__main__':
         x0 = ca.reshape(x0, -1, 1)
         x0 = x0.full()
         xx.append(x0) ##this is precisley how he moves
+        ##HUMAN STATE FOR SIMUALTION
+        h0 = move_human(x_h0,T)
+        h.append(h0)
         # print(u0[0])
         mpciter = mpciter + 1
     t_v = np.array(index_t)
@@ -239,6 +267,7 @@ if __name__ == '__main__':
     print((time.time() - start_time)/(mpciter))
     
     ##to do add plots for visulation (best case trajecory on a heat map)
-
-    draw_result = Draw_MPC_point_stabilization_v1(
-        rob_diam=2, init_state=x0_, target_state=xs, robot_states=xx)
+    
+    #draw_result = Draw_MPC_point_stabilization_v1(
+        #rob_diam=2, init_state=x0_, target_state=xs, robot_states=xx)
+    draw_result = Draw_MPC_Overtaking(robot_states=xx, human_states= h ,init_stateR =x0_,init_stateH= x_h0, target_state=xs, rob_diam=2,lead_diam=2)
