@@ -8,7 +8,6 @@ import numpy as np
 import time
 from draw import Draw_MPC_point_stabilization_v1
 
-
 def shift_movement(T, t0, x0, u, x_f, f): ##time step, cureent time,current pos, control prediction,state prediction and dynamics
     f_value = f(x0, u[0, :]) ##Xdot  ##exected only once
     st = x0 + T*f_value.full() ##update
@@ -27,40 +26,35 @@ if __name__ == '__main__':
     N = 100  # prediction horizon
     rob_diam = 0.3  # [m]
     ##control limits
-    v_max = 0.6
-    omega_max = np.pi/4.0
+    a_max = 4
+    delF_max = 0.17
     
     ##load lookup table
     with open("lookup_table2.pkl", "rb") as f:
         lookup_table_loaded = pickle.load(f)
         
                                 ##define state
-    #z = MX.sym("state_vector",4,1)  ##not specifically designed for numeric computation
-    #u = MX.sym("control_v",2,1)
     x = ca.MX.sym('x')
     y = ca.MX.sym('y')
-    # v = ca.SX.sym('v')
-    # yaw = ca.SX.sym('yaw')
-    # states = ca.vertcat(x, y)
-    # states = ca.vertcat(states, v)
-    # states = ca.vertcat(states, yaw)
     theta = ca.MX.sym('theta')
-    states = ca.vertcat(x, y)
-    states = ca.vertcat(states, theta)
-    states = ca.vcat([x, y, theta])
-    #  states = ca.vcat([x, y, v, yaw]) 
+    v = ca.MX.sym('v')
+    
+    states = ca.vcat([x, y,theta,v])
+
     ##DIMENSION
     n_states = states.size()[0]
 
                                 ##define control
-    v = ca.MX.sym('v')
-    omega = ca.MX.sym('omega')
-    controls = ca.vcat([v, omega])
+    a = ca.MX.sym('a')
+    delF = ca.MX.sym('delF')
+    controls = ca.vcat([a, delF])
     n_controls = controls.size()[0]
 
-    ###dynamics how they will propgate
+    ###dynamics how they will propgate 4d kbm
+    L = 1.105
     rhs = ca.vertcat(v*ca.cos(theta), v*ca.sin(theta))
-    rhs = ca.vertcat(rhs, omega)
+    rhs = ca.vertcat(rhs, v*ca.tan(delF)/L)
+    rhs = ca.vertcat(rhs, a)
 
     # function
     ##f(x,u) can be non linear
@@ -68,26 +62,26 @@ if __name__ == '__main__':
                     'input_state', 'control_input'], ['rhs'])
 
     # for MPC
-    U = ca.MX.sym('U', n_controls, N)
+    U = ca.SX.sym('U', n_controls, N)
 
-    X = ca.MX.sym('X', n_states, N+1)
+    X = ca.SX.sym('X', n_states, N+1)
 
-    P = ca.MX.sym('P', n_states+n_states) ##initial state and final state param 
+    P = ca.SX.sym('P', n_states+n_states) ##initial state and final state param 
 
     # define
-    Q = np.array([[1.0, 0.0, 0.0], [0.0, 5.0, 0.0], [0.0, 0.0, .1]])
-    R = np.array([[0.5, 0.0], [0.0, 0.05]])
+    Q = np.array([[1.0, 0.0], [0.0, .1]])
+    R = np.array([[10, 0.0, 0.0, 0.0], [0.0, 10.0, 0.0, 0.0], [0.0, 0.0, 10.0, 0.0], [0.0, 0.0, 0.0, 10.0]])
     # cost function
     obj = 0  # cost
     g = []  # equal constrains
     
-    g.append(X[:, 0]-P[:3]) ##initial condition
+    g.append(X[:, 0]-P[:4]) ##initial condition
     for i in range(N):
         ##import value function somehow
         
         ##obj penalizes deviation from final state (soften) and control
-        obj = obj + ca.mtimes([(X[:, i]-P[3:]).T, Q, X[:, i]-P[3:]]
-                              ) + ca.mtimes([U[:, i].T, R, U[:, i]])
+        obj = obj + ca.mtimes([(X[:, i]-P[4:]).T, R, X[:, i]-P[4:]]
+                              ) + ca.mtimes([U[:, i].T, Q, U[:, i]])
         ##dynamics
         x_next_ = f(X[:, i], U[:, i])*T + X[:, i] ##xt+1 = xdot * T + xt
         g.append(X[:, i+1]-x_next_)
@@ -108,38 +102,41 @@ if __name__ == '__main__':
 
     ## bound constarinst on u
     for _ in range(N):
-        lbx.append(-v_max)
-        lbx.append(-omega_max)
-        ubx.append(v_max)
-        ubx.append(omega_max)
+        lbx.append(-a_max)
+        lbx.append(-delF_max)
+        ubx.append(a_max)
+        ubx.append(delF_max)
         
     ##bound constarints on x
     for _ in range(N+1):  # note that this is different with the method using structure
-        lbx.append(-2.0)
-        lbx.append(-2.0)
         lbx.append(-np.inf)
-        ubx.append(2.0)
-        ubx.append(2.0)
+        lbx.append(-5.0)
+        lbx.append(-np.pi)
+        lbx.append(0.0)
         ubx.append(np.inf)
+        ubx.append(5.0)
+        ubx.append(np.pi)
+        ubx.append(20)
+        
 
     # Simulation define params
     t0 = 0.0
     ##initial state
-    x0 = np.array([0.0, 0.0, 0.0]).reshape(-1, 1)  # initial state
+    x0 = np.array([0.0, 0.0, 0.0, 0.0]).reshape(-1, 1)  # initial state
     x0_ = x0.copy() ##fixed
     ##store next states 
     x_m = np.zeros((n_states, N+1))
     next_states = x_m.copy().T
     
     ##destination soft constraint
-    xs = np.array([2, 0, 0.0]).reshape(-1, 1)  # final state
+    xs = np.array([2.5, 0.5, 0.0,0.0]).reshape(-1, 1)  # final state
     ##idk maybe initial control
-    u0 = np.array([1, np.pi]*N).reshape(-1, 2).T  # np.ones((N, 2)) # controls
+    u0 = np.array([1, 0]*N).reshape(-1, 2).T  # np.ones((N, 2)) # controls
     x_c = []  # contains for the history of the state
     u_c = []
     t_c = []  # for the time
     xx = [] ##robot state
-    sim_time = 20.0
+    sim_time = 100.0
 
     # start MPC
     mpciter = 0
@@ -147,7 +144,7 @@ if __name__ == '__main__':
     index_t = []
     # inital test
 
-    while(np.linalg.norm(x0-xs) > 1e-2 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal
+    while(np.linalg.norm(x0-xs) > 1e-3 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal
         # set parameter
         c_p = np.concatenate((x0, xs)) ##parameter storing initial and final state (initial updates and final fixed)
         init_control = np.concatenate((u0.reshape(-1, 1), next_states.reshape(-1, 1)))

@@ -29,38 +29,51 @@ if __name__ == '__main__':
     ##control limits
     v_max = 0.6
     omega_max = np.pi/4.0
+    lf,lr = 1.105,1.738
     
     ##load lookup table
     with open("lookup_table2.pkl", "rb") as f:
         lookup_table_loaded = pickle.load(f)
         
                                 ##define state
-    #z = MX.sym("state_vector",4,1)  ##not specifically designed for numeric computation
-    #u = MX.sym("control_v",2,1)
-    x = ca.MX.sym('x')
-    y = ca.MX.sym('y')
-    # v = ca.SX.sym('v')
-    # yaw = ca.SX.sym('yaw')
-    # states = ca.vertcat(x, y)
-    # states = ca.vertcat(states, v)
-    # states = ca.vertcat(states, yaw)
-    theta = ca.MX.sym('theta')
-    states = ca.vertcat(x, y)
-    states = ca.vertcat(states, theta)
-    states = ca.vcat([x, y, theta])
-    #  states = ca.vcat([x, y, v, yaw]) 
+    ##KBM for robot, curvature for human
+    xrel = ca.SX.sym('xrel')
+    yrel = ca.SX.sym('yrel')
+    yawrel = ca.SX.sym('yawrel')
+    vrobot = ca.SX.sym('vrobot')
+    vhuman  = ca.SX.sym('vhuman')
+    
+    
+    states = ca.vertcat(xrel, yrel)
+    states = ca.vertcat(states, yawrel)
+    states = ca.vertcat(states, vrobot)
+    states = ca.vertcat(states, vhuman)
+    states = ca.vcat([xrel,yrel,yawrel,vrobot,vhuman])
+    
     ##DIMENSION
     n_states = states.size()[0]
 
-                                ##define control
-    v = ca.MX.sym('v')
-    omega = ca.MX.sym('omega')
-    controls = ca.vcat([v, omega])
-    n_controls = controls.size()[0]
-
+                                ##define control robot
+    ar = ca.SX.sym('ar')
+    delfr = ca.SX.sym('delfr')
+    Robotcontrols = ca.vertcat(ar, delfr)
+    n_Robotcontrols = Robotcontrols.size()[0]
+                                ##slip angle
+    Br =  ca.atan((lr/(lf+lr))*ca.tan(delfr)) 
+                                ##human
+    ah = ca.SX.sym('ah')
+    omegah = ca.SX.sym('omegah')
+    Robotcontrols = ca.vertcat(ah, omegah)
+    n_Humancontrols = HUmancontrols.size()[0]
+    
     ###dynamics how they will propgate
-    rhs = ca.vertcat(v*ca.cos(theta), v*ca.sin(theta))
-    rhs = ca.vertcat(rhs, omega)
+    ##update px py
+    rhs = ca.vertcat((vrobot*yrel/lr)*ca.sin(Br)+ vhuman*ca.cos(yawrel) - vrobot*ca.cos(Br),
+                    (-vrobot*xrel/lr)*ca.sin(Br)+ vhuman*ca.sin(yawrel) - vrobot*ca.sin(Br))
+    ##update 
+    rhs = ca.vertcat(rhs, omegah- vrobot*ca.sin(Br)/lr)
+    rhs = ca.vertcat(rhs, ar)
+    rhs = ca.vertcat(rhs, ah)
 
     # function
     ##f(x,u) can be non linear
@@ -68,11 +81,11 @@ if __name__ == '__main__':
                     'input_state', 'control_input'], ['rhs'])
 
     # for MPC
-    U = ca.MX.sym('U', n_controls, N)
+    U = ca.SX.sym('U', n_controls, N)
 
-    X = ca.MX.sym('X', n_states, N+1)
+    X = ca.SX.sym('X', n_states, N+1)
 
-    P = ca.MX.sym('P', n_states+n_states) ##initial state and final state param 
+    P = ca.SX.sym('P', n_states+n_states) ##initial state and final state param 
 
     # define
     Q = np.array([[1.0, 0.0, 0.0], [0.0, 5.0, 0.0], [0.0, 0.0, .1]])
@@ -132,9 +145,9 @@ if __name__ == '__main__':
     next_states = x_m.copy().T
     
     ##destination soft constraint
-    xs = np.array([2, 0, 0.0]).reshape(-1, 1)  # final state
+    xs = np.array([1.5, 1.5, 0.0]).reshape(-1, 1)  # final state
     ##idk maybe initial control
-    u0 = np.array([1, np.pi]*N).reshape(-1, 2).T  # np.ones((N, 2)) # controls
+    u0 = np.array([1, 2]*N).reshape(-1, 2).T  # np.ones((N, 2)) # controls
     x_c = []  # contains for the history of the state
     u_c = []
     t_c = []  # for the time

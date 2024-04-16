@@ -1,130 +1,189 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import casadi as ca
 import casadi.tools as ca_tools
-
+import pickle
 import numpy as np
-from draw import Draw_MPC_point_stabilization_v1
 import time
-from constraint_limits import PCC_parameters
+from draw import Draw_MPC_point_stabilization_v1
+
+def shift_movement(T, t0, x0, u, x_f, f): ##time step, cureent time,current pos, control prediction,state prediction and dynamics
+    f_value = f(x0, u[0, :]) ##Xdot  ##exected only once
+    st = x0 + T*f_value.full() ##update
+    t = t0 + T ##update time
+    # print(u[:,0])
+    # u_end = np.concatenate((u[:, 1:], u[:, -1:]), axis=1)
+    u_end = np.concatenate((u[1:], u[-1:])) #shifts all elements of u one position to the left(as first executed), and the last element wraps around to the beginning.
+    # x_f = np.concatenate((x_f[:, 1:], x_f[:, -1:]), axis=1)
+    x_f = np.concatenate((x_f[1:], x_f[-1:]), axis=0)
+
+    return t, st, u_end, x_f ##st is precisly what i needed
 
 
-
-def TemporalDynamics():
-    """Vehicle model"""
-    A = ca.DM([[0, 1, 0],
-               [0, 0, 0],
-               [0, 0, 0]])
-
-    B = ca.DM([[0, 0],
-               [1, 0],
-               [0, 1]])
-
-    return A, B
-
-
-def HumanDynamics(params, t):
-    return ca.DM([params.vl * t, params.vl, 0])
-
-
-def UpdateState(z, u, dt):
-    # A, B = Temporaldynamics()
-    # return np.eye(3) @ z + params.dt*(A @ z + B @ u)
-    A, B = TemporalDynamics()
-    return ca.mtimes(np.eye(3),z) + (ca.mtimes(A, z) + ca.mtimes(B, u)) * dt
-
-def get_ref(x_tilde,params,N): ##params imported created a reference
+if __name__ == '__main__':
+    T = 0.2  # sampling time [s]
+    N = 100  # prediction horizon
+    rob_diam = 0.3  # [m]
+    ##control limits
+    v_max = 0.6
+    omega_max = np.pi/4.0
     
-    x   = np.array([0.0]*N)
-    vr  = np.array([0.0]*N)
-    y   = np.array([0.0]*N)
-
-    vr[:] = params.vr - params.vl
-    for i in range(N):
-        x[i] = x[i-1] + vr[i]*params.dt
-        if params.XL0 - params.lLF <= x_tilde + params.x_d*i and x_tilde + params.x_d*i <= params.XL0 + params.lLr:
-            y[i] = 3*params.wl/2
-        else:
-            y[i] = params.wl/2
-
-    z_ref = np.array([x,vr,y])
-    return z_ref
-
-
-def MPC(params, z_initial, U_prev, z_r=None):
-    """MPC solver"""
-    N = int(params.x_f / params.x_d)
-    z_e = ca.MX.sym("z_e", 3, N)
-    u_e = ca.MX.sym("u_e", 2, N+1)
-    cost = 0
-    constraints = []
-    ymin = ca.DM.zeros(N)
-    ymax = ca.DM.zeros(N)
-
-    if z_r is None:
-        z_r = get_ref(0, params, N)
+    ##load lookup table
+    with open("lookup_table2.pkl", "rb") as f:
+        lookup_table_loaded = pickle.load(f)
         
-    Plt = HumanDynamics(params,0)
-    constraints.append(z_e[:,0] == z_initial.flatten() -Plt)
+                                ##define state
+    #z = MX.sym("state_vector",4,1)  ##not specifically designed for numeric computation
+    #u = MX.sym("control_v",2,1)
+    x = ca.SX.sym('x')
+    y = ca.SX.sym('y')
+    # v = ca.SX.sym('v')
+    # yaw = ca.SX.sym('yaw')
+    # states = ca.vertcat(x, y)
+    # states = ca.vertcat(states, v)
+    # states = ca.vertcat(states, yaw)
+    theta = ca.SX.sym('theta')
+    states = ca.vertcat(x, y)
+    states = ca.vertcat(states, theta)
+    states = ca.vcat([x, y, theta])
+    #  states = ca.vcat([x, y, v, yaw]) 
+    ##DIMENSION
+    n_states = states.size()[0]
 
-    for i in range(N):
-        cost += ca.dot(z_e[:, i] - z_r[:, i], params.Q3 @ (z_e[:, i] - z_r[:, i]))
-        cost += ca.dot(u_e[:, i], params.R @ u_e[:, i])
+                                ##define control
+    v = ca.SX.sym('v')
+    omega = ca.SX.sym('omega')
+    controls = ca.vertcat(v, omega)
+    n_controls = controls.size()[0]
 
-        ymin[i] = ca.if_else(z_r[0, i] >= params.XL0 - params.lLF and z_r[0, i] <= params.XL0 + params.lLr,
-                             params.w + params.wl, params.w)
+    ###dynamics how they will propgate
+    rhs = ca.vertcat(v*ca.cos(theta), v*ca.sin(theta))
+    rhs = ca.vertcat(rhs, omega)
 
-        ymax[i] = ca.if_else(z_r[0, i] > params.XL0 - params.ls and z_r[0, i] < params.XL0 + params.le,
-                             2 * params.wl - params.w, params.wl - params.w)
+    # function
+    ##f(x,u) can be non linear
+    f = ca.Function('f', [states, controls], [rhs], [
+                    'input_state', 'control_input'], ['rhs'])
 
+    # for MPC
+    U = ca.SX.sym('U', n_controls, N)
+
+    X = ca.SX.sym('X', n_states, N+1)
+
+    P = ca.SX.sym('P', n_states+n_states) ##initial state and final state param 
+
+    # define
+    Q = np.array([[1.0, 0.0, 0.0], [0.0, 5.0, 0.0], [0.0, 0.0, .1]])
+    R = np.array([[0.5, 0.0], [0.0, 0.05]])
+    # cost function
+    obj = 0  # cost
+    g = []  # equal constrains
     
-    for i in range(N - 1):      
-        constraints.append(z_e[:, i + 1] == UpdateState(z_e[:, i], u_e[:, i], params.dt))
-
+    g.append(X[:, 0]-P[:3]) ##initial condition
     for i in range(N):
-        Plt = HumanDynamics(params,i*params.dt)
-        constraints.append(z_e[0,i]  >= 0 - Plt[0])
-        constraints.append(z_e[1,i]  >= params.vl + params.epsilon - Plt[1])
-        constraints.append(z_e[1,i] <= params.vxmax - Plt[1])
-        constraints.append(z_e[2,i] >= ymin[i] - Plt[2])
-        constraints.append(z_e[2,i] <= ymax[i] - Plt[2])
-        constraints.append(z_e[0,i]  >= 0 - Plt[0])
+        ##import value function somehow
         
-        constraints.append(u_e[1,i] >= params.smin*(z_e[1,:] + Plt[1]))
-        constraints.append(u_e[1,i] <= params.smax*(z_e[1,:] + Plt[1]))
+        ##obj penalizes deviation from final state (soften) and control
+        obj = obj + ca.mtimes([(X[:, i]-P[3:]).T, Q, X[:, i]-P[3:]]
+                              ) + ca.mtimes([U[:, i].T, R, U[:, i]])
+        ##dynamics
+        x_next_ = f(X[:, i], U[:, i])*T + X[:, i] ##xt+1 = xdot * T + xt
+        g.append(X[:, i+1]-x_next_)
+    
+    ##define solver
+    opt_variables = ca.vertcat(ca.reshape(U, -1, 1), ca.reshape(X, -1, 1))
+
+    nlp_prob = {'f': obj, 'x': opt_variables, 'p': P, 'g': ca.vertcat(*g)}
+    opts_setting = {'ipopt.max_iter': 100, 'ipopt.print_level': 5   , 'print_time': 0,
+                    'ipopt.acceptable_tol': 1e-8, 'ipopt.acceptable_obj_change_tol': 1e-6}
+
+    solver = ca.nlpsol('solver', 'ipopt', nlp_prob, opts_setting)
+
+    lbg = 0.0
+    ubg = 0.0
+    lbx = []
+    ubx = []
+
+    ## bound constarinst on u
+    for _ in range(N):
+        lbx.append(-v_max)
+        lbx.append(-omega_max)
+        ubx.append(v_max)
+        ubx.append(omega_max)
         
-        constraints.append(u_e[0,i] >= params.axmin)
-        constraints.append(u_e[0,i] <= params.axmax)
-        constraints.append(u_e[1,i] >= params.vymin)
-        constraints.append(u_e[1,i] <= params.vymax)
+    ##bound constarints on x
+    for _ in range(N+1):  # note that this is different with the method using structure
+        lbx.append(-2.0)
+        lbx.append(-2.0)
+        lbx.append(-np.inf)
+        ubx.append(2.0)
+        ubx.append(2.0)
+        ubx.append(np.inf)
+
+    # Simulation define params
+    t0 = 0.0
+    ##initial state
+    x0 = np.array([0.0, 0.0, 0.0]).reshape(-1, 1)  # initial state
+    x0_ = x0.copy() ##fixed
+    ##store next states 
+    x_m = np.zeros((n_states, N+1))
+    next_states = x_m.copy().T
+    
+    ##destination soft constraint
+    xs = np.array([1.5, 1.5, 0.0]).reshape(-1, 1)  # final state
+    ##idk maybe initial control
+    u0 = np.array([1, 2]*N).reshape(-1, 2).T  # np.ones((N, 2)) # controls
+    x_c = []  # contains for the history of the state
+    u_c = []
+    t_c = []  # for the time
+    xx = [] ##robot state
+    sim_time = 20.0
+
+    # start MPC
+    mpciter = 0
+    start_time = time.time()
+    index_t = []
+    # inital test
+
+    while(np.linalg.norm(x0-xs) > 1e-2 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal
+        # set parameter
+        c_p = np.concatenate((x0, xs)) ##parameter storing initial and final state (initial updates and final fixed)
+        init_control = np.concatenate((u0.reshape(-1, 1), next_states.reshape(-1, 1)))
+        t_ = time.time()
         
-    opt_variables = ca.vertcat( ca.reshape(u_e, -1, 1), ca.reshape(z_e, -1, 1))
-    qp = {"x": opt_variables, "f": cost, "g": ca.vertcat(*constraints)}
-    solver_opts = {"print_time": False, "ipopt": {"print_level": 0}}
+        ##called MPC solver 
+        ##Todo this is prediction horizon
+        ##x0 and hence c_p updates
+        res = solver(x0=init_control, p=c_p, lbg=lbg,
+                     lbx=lbx, ubg=ubg, ubx=ubx)
+        index_t.append(time.time() - t_)
+        # the feedback is in the series [u0, x0, u1, x1, ...]
+        estimated_opt = res['x'].full() ##all otimal variables
+        ##entire horizon optimal control sequence and states prediction returned  (check shapes)
+        u0 = estimated_opt[:200].reshape(N, n_controls)  # (N, n_controls)
+        x_m = estimated_opt[200:].reshape(N+1, n_states)  # (N+1, n_states)
+        
+        ##history upddates
+        x_c.append(x_m.T) ##transpose state sorted, entire predicted trajectory stored
+        u_c.append(u0[0, :])  ##only first control stored
+        t_c.append(t0)
+        
+        ##todo add control horizon
+        ##update state
+        t0, x0, u0, next_states = shift_movement(T, t0, x0, u0, x_m, f) ##entire prediction horizon for contol
+        ##u0 , next states are predictions excluding first
+        ##update initial states which are actually executed
+        x0 = ca.reshape(x0, -1, 1)
+        x0 = x0.full()
+        xx.append(x0) ##this is precisley how he moves
+        # print(u0[0])
+        mpciter = mpciter + 1
+    t_v = np.array(index_t)
+    print(t_v.mean())
+    print((time.time() - start_time)/(mpciter))
+    
+    ##to do add plots for visulation (best case trajecory on a heat map)
 
-    solver = ca.nlpsol("solver", "ipopt", qp, solver_opts)
-    #sol = solver(x0=ca.vertcat(z_initial.flatten(), U_prev.flatten()))
-
-    if solver.stats()["success"]:
-        z_opt = sol["x"][:3 * N].full().reshape(3, N)
-        u_opt = sol["x"][3 * N:].full().reshape(2, N)
-    else:
-        z_opt, u_opt = None, None
-
-    return z_opt, u_opt, ymin, ymax
-
-
-if __name__ == "__main__":
-    params = PCC_parameters()
-    Nc = 5  # Control horizon
-
-    z_initial = np.array([0, 20 / 3.6, 2.5])
-    U_prev = np.array([[0], [0]])
-
-    for i in range(int(180 / Nc)):  # Iteratively call
-        z, u, ymin, ymax = MPC(params, z_initial, U_prev)
-        if z is not None:
-            print(z)
-            print(u)
-        else:
-            print("Optimization failed")
-
-        z_initial = UpdateState(z_initial, u[:, 0], params.dt * Nc)
+    draw_result = Draw_MPC_point_stabilization_v1(
+        rob_diam=0.3, init_state=x0_, target_state=xs, robot_states=xx)
