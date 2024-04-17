@@ -7,6 +7,7 @@ import matplotlib.animation as animation
 import matplotlib.patches as mpatches
 import matplotlib as mpl
 
+
 class Draw_MPC_point_stabilization_v1(object):
     def __init__(self, robot_states: list, init_state: np.array, target_state: np.array, rob_diam=0.3,
                  export_fig=False):
@@ -59,7 +60,7 @@ class Draw_MPC_point_stabilization_v1(object):
     
 ##custom function to animate lead vehicle
 class Draw_MPC_Overtaking(object):
-    def __init__(self, robot_states: list,human_states: list ,init_stateR: np.array,init_stateH: np.array, target_state: np.array, rob_diam=0.3,lead_diam=0.3,
+    def __init__(self, robot_states: list,human_states: list ,init_stateR: np.array,init_stateH: np.array, target_state: np.array, rob_diam=0.3,lead_diam=0.3,show_heatmap = True,
                  export_fig =False):
         self.robot_states = robot_states
         self.human_states = human_states
@@ -69,8 +70,9 @@ class Draw_MPC_Overtaking(object):
         self.rob_radius = rob_diam / 2.0
         self.hum_radius = lead_diam/ 2.0
         self.fig = plt.figure()
+        self.is_heatMap = show_heatmap
         ##animation horizon
-        self.ax = plt.axes(xlim=(-25, 30), ylim=(-5, 5))
+        self.ax = plt.axes(xlim=(-20, 30), ylim=(-5, 5))
         # self.fig.set_dpi(400)
         self.fig.set_size_inches(10, 8)
         # init for plot
@@ -83,6 +85,8 @@ class Draw_MPC_Overtaking(object):
         if export_fig:
             self.ani.save('./v1.gif', writer='imagemagick', fps=100)
         plt.show()
+        if show_heatmap:
+            self.heatMap()
 
     def animation_init(self):
         # plot target state
@@ -113,8 +117,6 @@ class Draw_MPC_Overtaking(object):
         robot_orientation = self.robot_states[indx][2]
         human_position = self.human_states[indx][:2]
         human_orientation = self.human_states[indx][2]
-        plt.plot(robot_position[0],robot_position[1],"red")
-        plt.plot(human_position[0],human_position[1],"red")
         self.robot_body.center = robot_position
         self.robot_arr.remove()
         self.robot_arr = mpatches.Arrow(robot_position[0], robot_position[1], self.rob_radius * np.cos(robot_orientation), self.rob_radius * np.sin(robot_orientation), width=0.2, color='r')
@@ -127,3 +129,38 @@ class Draw_MPC_Overtaking(object):
         
         return self.robot_arr, self.robot_body, self.human_arr, self.human_body
     
+    def heatMap(self):
+        ##compute xrel
+        human = self.human_states
+        robot = self.robot_states
+        ##compute xrel
+        
+        xrel = np.cos(robot[:][2]) * (-human[:][0] + robot[:][0]) + np.sin(robot[:][2])*(-human[:][1] + robot[:][1])
+        yrel = -np.sin(robot[:][2]) * (-human[:][0] + robot[:][0]) + np.cos(robot[:][2])*(-human[:][1] + robot[:][1])
+        
+        plt.figure(figsize=(13, 8))
+        
+        ##to do use eval_u to get data for heat map
+
+        # plt.jet()
+        
+        # # Plot the heat map
+        # plt.contourf(grid.coordinate_vectors[0], grid.coordinate_vectors[1], smallValues[:, :, 0,8,5].T)
+        # plt.colorbar()
+
+        # # Plot the contour line
+        # plt.contour(grid.coordinate_vectors[0],
+        #             grid.coordinate_vectors[1],
+        #             smallValues[:, :, 0,8,5].T,
+        #             levels=0,
+        #             colors="black",
+        #             linewidths=3)
+
+        # Plot the trajectory
+        plt.plot(xrel, yrel, 'k--')
+        plt.xlim(-20, 20)
+        plt.xlabel('X')
+        plt.ylabel('Y')
+        plt.title('Heat Map with relative Trajectory')
+        plt.show()
+            

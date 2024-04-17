@@ -221,7 +221,7 @@ if __name__ == '__main__':
     # Simulation define params
     t0 = 0.0
     ##initial state
-    x0 = np.array([-15.0, 0.0, 0,3]).reshape(-1, 1)  # initial state 
+    x0 = np.array([-15.0, 0.0, 0,4]).reshape(-1, 1)  # initial state 
     x_h0 = np.array([0.0, 0.0, 0, 1]).reshape(-1, 1)  ##initial human for animation
     x0_ = x0.copy() ##fixed
     ##store next states 
@@ -237,7 +237,7 @@ if __name__ == '__main__':
     t_c = []  # for the time
     xx = [] ##robot state
     h = [] ##human  state for animation
-    sim_time = 30.0
+    sim_time = 50.0
 
     # start MPC
     mpciter = 0
@@ -246,7 +246,7 @@ if __name__ == '__main__':
     h0 =x_h0 #initialized human pose for simulation
     # inital test
 
-    while(np.linalg.norm(x0-xs) > 0.3 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal (can be softened)
+    while(np.linalg.norm(x0-xs) > 1 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal (can be softened)
         # set parameter
         c_p = np.concatenate((x0, xs)) ##parameter storing initial and final state (initial updates and final fixed)
         init_control = np.concatenate((u0.reshape(-1, 1), next_states.reshape(-1, 1)))
