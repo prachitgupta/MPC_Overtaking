@@ -10,7 +10,7 @@ import matplotlib as mpl
 
 class Draw_MPC_point_stabilization_v1(object):
     def __init__(self, robot_states: list, init_state: np.array, target_state: np.array, rob_diam=0.3,
-                 export_fig=False):
+                 export_fig=True):
         self.robot_states = robot_states
         self.init_state = init_state
         self.target_state = target_state
@@ -61,7 +61,7 @@ class Draw_MPC_point_stabilization_v1(object):
 ##custom function to animate lead vehicle
 class Draw_MPC_Overtaking(object):
     def __init__(self, robot_states: list,human_states: list ,init_stateR: np.array,init_stateH: np.array, target_state: np.array, rob_diam=0.3,lead_diam=0.3,show_heatmap = True,
-                 export_fig =False):
+                 export_fig =True):
         self.robot_states = robot_states
         self.human_states = human_states
         self.init_stateR = init_stateR
@@ -72,7 +72,7 @@ class Draw_MPC_Overtaking(object):
         self.fig = plt.figure()
         self.is_heatMap = show_heatmap
         ##animation horizon
-        self.ax = plt.axes(xlim=(-20, 30), ylim=(-5, 5))
+        self.ax = plt.axes(xlim=(-30, 32), ylim=(-5, 5))
         # self.fig.set_dpi(400)
         self.fig.set_size_inches(10, 8)
         # init for plot

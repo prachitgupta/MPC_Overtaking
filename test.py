@@ -17,5 +17,5 @@ a = np.array([1,2,2,2])
 aca = ca.MX(a)
 # Evaluate the lookup table at the specified point
 #result = X1 + aca
-lookup_value = lookup_table(aca)
+lookup_value = lookup_table([10,5,0,5,6])
 print(lookup_value)

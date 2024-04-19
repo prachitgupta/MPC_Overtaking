@@ -39,36 +39,24 @@ def move_human(states,dt):
     return np.array([x_new, y_new, theta_new, v_new]).reshape(-1,1)
     
 
-def simulate_human_motion(InitialState, dt,N):
-# Define symbolic variables
-    x, y, theta, v = InitialState[0], InitialState[1], InitialState[2], InitialState[3]
+def simulate_human_motion(states, dt):
+    # Define symbolic variables
+    x, y, theta, v = states[0], states[1], states[2], states[3]
     # Constant velocity (no acceleration)
     a = 0.0
     # Extended unicycle model dynamics
     L = 1.735  # Wheelbase length
-    num_steps = N
-    updated_states = np.zeros((4, num_steps))  # Store updated states
-    for i in range(num_steps):
-
-        # Calculate derivatives
-        dxdt = v * np.cos(theta)
-        dydt = v * np.sin(theta)
-        dthetadt = 0.0  # No change in heading angle
-        dvdt = 0.0  # Constant velocity
-
-        # Update the state using Euler integration
-        x_new = x + dxdt * dt
-        y_new = y + dydt * dt
-        theta_new = theta + dthetadt * dt
-        v_new = v + dvdt * dt
-
-        # Store updated states
-        updated_states[:, i] = np.array([x_new, y_new, theta_new, v_new]).flatten()
-
-        # Update state for next iteration
-        x, y, theta, v = x_new, y_new, theta_new, v_new
-
-    return updated_states
+    dxdt = v * ca.cos(theta)
+    dydt = v * ca.sin(theta)
+    dthetadt = 0.0  # No change in heading angle
+    dvdt = 0.0  # Constant velocity
+    # Update the state using Euler integration
+    x_new = x + dxdt * dt
+    y_new = y + dydt * dt
+    theta_new = theta + dthetadt * dt
+    v_new = v + dvdt * dt
+    # Return the updated state
+    return (x_new, y_new, theta_new, v_new)
 
 if __name__ == '__main__':
     T = 0.2  # sampling time [s]
@@ -105,20 +93,22 @@ if __name__ == '__main__':
     Br =  ca.atan((lr/(lf+lr))*ca.tan(delF)) 
 
     ###dynamics how they will propgate 4d kbm
-    ##with slip angle
-    # rhs = ca.vertcat(v*ca.cos(theta + Br), v*ca.sin(theta + Br))
-    # rhs = ca.vertcat(rhs, v*ca.tan(Br)/lr)
-    # rhs = ca.vertcat(rhs, a)
-    ##without slip angle
-    rhs = ca.vertcat(v*ca.cos(theta), v*ca.sin(theta))
-    rhs = ca.vertcat(rhs, v*ca.tan(delF)/lr)
+    rhs = ca.vertcat(v*ca.cos(theta + Br), v*ca.sin(theta + Br))
+    rhs = ca.vertcat(rhs, v*ca.tan(Br)/lr)
     rhs = ca.vertcat(rhs, a)
 
     # function
     ##Xdot = f(x,u) can be non linear
     f = ca.Function('f', [states, controls], [rhs], [
                     'input_state', 'control_input'], ['rhs'])
-
+    
+    
+    # Define initial state for human
+    xh0 = 0.0
+    yh0 = 0.0
+    thetah0 = 0.0
+    vh0 = 1  # Initial velocity (m/s)
+    statesh0 = ca.vertcat(xh0, yh0, thetah0, vh0)
     
                     ##define relative state 
     xrel= ca.MX.sym('xrel')
@@ -136,33 +126,32 @@ if __name__ == '__main__':
 
     P = ca.MX.sym('P', n_states+n_states) ##initial state and final state param 
     
-    ##human
-    H = ca.MX.sym('H', n_states,N)
     
     # define
     Q = np.array([[1.0, 0.0], [0.0, 1]])
-    R = np.array([[10, 0.0, 0.0, 0.0], [0.0, 10.0, 0.0, 0.0], [0.0, 0.0, 10.0, 0.0], [0.0, 0.0, 0.0, 10.0]])
+    R = np.array([[10, 0.0, 0.0, 0.0], [0.0, 10.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]])
     # cost function
     obj = 0  # cost
     g = []  # equal constrains
     
     g.append(X[:, 0]-P[:4]) ##initial condition #1st
     
+    statesH = statesh0
     for i in range(N):
-        # ##human motion simulate (constant velocity of 8m/s) stored in param H
+        # ##human motion simulate (constant velocity of 8m/s) 
+        statesH = simulate_human_motion(statesH,T)
         
-        ##calculate relative dynamics wrt to coordinate frame centred at robot
+        ##calculate relative dynamics
         ##rotation transformation (Karen Leung paper section 5.3)
-        xrel = ca.cos(X[2,i]) * (H[0,i] - X[0,i]) + ca.sin(X[2,i])*(H[1,i] - X[1,i])
-        yrel = -ca.sin(X[2,i]) * (H[0,i] - X[0,i]) + ca.cos(X[2,i])*(H[1,i] - X[1,i]) 
-        # xrel = ca.cos(H[2,i]) * (-H[0,i] + X[0,i]) + ca.sin(H[2,i])*(-H[1,i] + X[1,i])
-        # yrel = -ca.sin(H[2,i]) * (-H[0,i] + X[0,i]) + ca.cos(H[2,i])*(-H[1,i] + X[1,i])  
-             
+        # xrel = ca.cos(X[2,i]) * (statesH[0] - X[0,i]) + ca.sin(X[2,i])*(statesH[1] - X[1,i])
+        # yrel = -ca.sin(X[2,i]) * (statesH[0] - X[0,i]) + ca.cos(X[2,i])*(statesH[1] - X[1,i]) 
+        xrel = ca.cos(X[2,i]) * (-statesH[0] + X[0,i]) + ca.sin(X[2,i])*(-statesH[1] + X[1,i])
+        yrel = -ca.sin(X[2,i]) * (-statesH[0] + X[0,i]) + ca.cos(X[2,i])*(-statesH[1] + X[1,i])
         ##append omega rel , vr and vh
-        thetarel = H[2,i] - X[2,i]
-        #thetarel = -H[2,i] + X[2,i]
+        #thetarel = statesH[2] - X[2,i]
+        thetarel = -statesH[2] + X[2,i]
         vr = X[3,i]
-        vh = H[3,i]
+        vh = statesH[3]
         statesRel = ca.vcat([xrel,yrel,thetarel,vr,vh])
         #print(statesRel.size()[0])
         ##value at xrel
@@ -174,7 +163,7 @@ if __name__ == '__main__':
         obj = obj + ca.mtimes([(X[:, i]-P[4:]).T, R, X[:, i]-P[4:]]
                               ) + ca.mtimes([U[:, i].T, Q, U[:, i]])  
         ##value function appended
-        obj = obj + value
+        obj = obj + value 
         #obj = obj + value + 1/value
         ##dynamics
         x_next_ = f(X[:, i], U[:, i])*T + X[:, i] ##xt+1 = xdot * T + xt
@@ -183,9 +172,7 @@ if __name__ == '__main__':
 
     ##define solver
     opt_variables = ca.vertcat(ca.reshape(U, -1, 1), ca.reshape(X, -1, 1))
-    parameters = ca.vertcat(P,ca.reshape(H, -1, 1))
-    # nlp_prob = {'f': obj, 'x': opt_variables, 'p': P, 'g': ca.vertcat(*g)}
-    nlp_prob = {'f': obj, 'x': opt_variables, 'p': parameters, 'g': ca.vertcat(*g)}
+    nlp_prob = {'f': obj, 'x': opt_variables, 'p': P, 'g': ca.vertcat(*g)}
     opts_setting = {'ipopt.max_iter': 100, 'ipopt.print_level': 5   , 'print_time': 0,
                     'ipopt.acceptable_tol': 1e-8, 'ipopt.acceptable_obj_change_tol': 1e-6}
 
@@ -214,7 +201,7 @@ if __name__ == '__main__':
         ubx.append(np.inf)
         ubx.append(5.0)
         ubx.append(np.pi)
-        ubx.append(20)
+        ubx.append(30)
     
     ##lower bound other constraints
     for _ in range(4):
@@ -234,15 +221,15 @@ if __name__ == '__main__':
     # Simulation define params
     t0 = 0.0
     ##initial state
-    x0 = np.array([-20.0, 0.0, 0,5]).reshape(-1, 1)  # initial state 
-    x_h0 = np.array([0.0, 0.0, 0, 1]).reshape(-1, 1)  ##initial human for animation
+    x0 = np.array([-15.0, 0.0, 0,0]).reshape(-1, 1)  # initial state 
+    x_h0 = np.array([-5.0, 0.0, 0, 1]).reshape(-1, 1)  ##initial human for animation
     x0_ = x0.copy() ##fixed
     ##store next states 
     x_m = np.zeros((n_states, N+1))
     next_states = x_m.copy().T
     
     ##destination soft constraint
-    xs = np.array([20, 0.0, 0.0,10]).reshape(-1, 1)  # final state (xrel = 15)
+    xs = np.array([30, 0.0, 0.0,0.0]).reshape(-1, 1)  # final state (xrel = 15)
     ##idk maybe initial control
     u0 = np.array([1, 0]*N).reshape(-1, 2).T  # np.ones((N, 2)) # controls
     x_c = []  # contains for the history of the state
@@ -250,7 +237,7 @@ if __name__ == '__main__':
     t_c = []  # for the time
     xx = [] ##robot state
     h = [] ##human  state for animation
-    sim_time = 50.0
+    sim_time = 30.0
 
     # start MPC
     mpciter = 0
@@ -261,12 +248,10 @@ if __name__ == '__main__':
 
     while(np.linalg.norm(x0-xs) > 1 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal (can be softened)
         # set parameter
-        #c_p = np.concatenate((x0, xs)) ##parameter storing initial and final state (initial updates and final fixed)
+        c_p = np.concatenate((x0, xs)) ##parameter storing initial and final state (initial updates and final fixed)
         init_control = np.concatenate((u0.reshape(-1, 1), next_states.reshape(-1, 1)))
         
         ##SET Human parameter stores human states given an initial velocity
-        statesH = simulate_human_motion(h0, T,N)
-        c_p = np.concatenate((x0,xs,statesH.reshape(-1,1)))
         t_ = time.time()
         
         ##called MPC solver 

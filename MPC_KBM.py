@@ -24,7 +24,7 @@ def shift_movement(T, t0, x0, u, x_f, f): ##time step, cureent time,current pos,
 if __name__ == '__main__':
     T = 0.2  # sampling time [s]
     N = 100  # prediction horizon
-    rob_diam = 4  # [m]
+    rob_diam = 0.3  # [m]
     ##control limits
     a_max = 4
     delF_max = np.pi/4
@@ -122,14 +122,14 @@ if __name__ == '__main__':
     # Simulation define params
     t0 = 0.0
     ##initial state
-    x0 = np.array([-15.0, 0.0, 0.0, 0.0]).reshape(-1, 1)  # initial state
+    x0 = np.array([-25.0, 0.0, 0.0, 0.0]).reshape(-1, 1)  # initial state
     x0_ = x0.copy() ##fixed
     ##store next states 
     x_m = np.zeros((n_states, N+1))
     next_states = x_m.copy().T
     
     ##destination soft constraint
-    xs = np.array([15, 0.5, 0.0,0.0]).reshape(-1, 1)  # final state
+    xs = np.array([15, 0, 0.0,0.0]).reshape(-1, 1)  # final state
     ##idk maybe initial control
     u0 = np.array([1, 0]*N).reshape(-1, 2).T  # np.ones((N, 2)) # controls
     x_c = []  # contains for the history of the state
