@@ -129,7 +129,7 @@ if __name__ == '__main__':
     next_states = x_m.copy().T
     
     ##destination soft constraint
-    xs = np.array([15, 0, 0.0,0.0]).reshape(-1, 1)  # final state
+    xs = np.array([15, 2, 0.0,0.0]).reshape(-1, 1)  # final state
     ##idk maybe initial control
     u0 = np.array([1, 0]*N).reshape(-1, 2).T  # np.ones((N, 2)) # controls
     x_c = []  # contains for the history of the state
@@ -184,4 +184,4 @@ if __name__ == '__main__':
     ##to do add plots for visulation (best case trajecory on a heat map)
 
     draw_result = Draw_MPC_point_stabilization_v1(
-        rob_diam=4, init_state=x0_, target_state=xs, robot_states=xx)
+        rob_diam=1, init_state=x0_, target_state=xs, robot_states=xx)

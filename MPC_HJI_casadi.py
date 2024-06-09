@@ -78,7 +78,7 @@ if __name__ == '__main__':
     a_max = 4
     delF_max = np.pi/4
     lf,lr = 1.105,1.738
-    toleranceValue = 0.2
+    toleranceValue = 0.1
     
     ##load lookup table (function outputs value at a given relative state)
     with open("lookup_table2.pkl", "rb") as f:
@@ -234,15 +234,15 @@ if __name__ == '__main__':
     # Simulation define params
     t0 = 0.0
     ##initial state
-    x0 = np.array([-20.0, 0.0, 0,5]).reshape(-1, 1)  # initial state 
-    x_h0 = np.array([0.0, 0.0, 0, 1]).reshape(-1, 1)  ##initial human for animation
+    x0 = np.array([-30.0, 0.0, 0,5]).reshape(-1, 1)  # initial state 
+    x_h0 = np.array([0.0, 0.0, 0, 0]).reshape(-1, 1)  ##initial human for animation
     x0_ = x0.copy() ##fixed
     ##store next states 
     x_m = np.zeros((n_states, N+1))
     next_states = x_m.copy().T
     
     ##destination soft constraint
-    xs = np.array([20, 0.0, 0.0,10]).reshape(-1, 1)  # final state (xrel = 15)
+    xs = np.array([30, 0.0, 0.0,0]).reshape(-1, 1)  # final state (xrel = 15)
     ##idk maybe initial control
     u0 = np.array([1, 0]*N).reshape(-1, 2).T  # np.ones((N, 2)) # controls
     x_c = []  # contains for the history of the state
@@ -259,7 +259,8 @@ if __name__ == '__main__':
     h0 =x_h0 #initialized human pose for simulation
     # inital test
 
-    while(np.linalg.norm(x0-xs) > 1 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal (can be softened)
+    #while(np.linalg.norm(x0-xs) > 1 and mpciter-sim_time/T < 0.0): ##how much accuracy in reaching goal (can be softened)
+    while(mpciter-sim_time/T < 0.0):
         # set parameter
         #c_p = np.concatenate((x0, xs)) ##parameter storing initial and final state (initial updates and final fixed)
         init_control = np.concatenate((u0.reshape(-1, 1), next_states.reshape(-1, 1)))
@@ -304,6 +305,7 @@ if __name__ == '__main__':
     t_v = np.array(index_t)
     print(t_v.mean())
     print((time.time() - start_time)/(mpciter))
+    print(h)
     
     
     ##to do add plots for visulation (best case trajecory on a heat map)

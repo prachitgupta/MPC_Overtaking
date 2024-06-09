@@ -17,6 +17,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from constraint_limits import PCC_parameters
 from eval_u import eval_u
+from PIL import Image
 
 
 def Temporaldynamics():
@@ -212,7 +213,21 @@ if __name__ == "__main__":
             plt.plot(params.XL0+Plt[0],Plt[2]+2.5,"s",color="maroon",label = "lead vehicle moving")  ##car visual absolute
             plt.plot(z[0],z[2],color="purple") ## yrel vs xrel how car moves on leading reference frame
             plt.legend()
-            plt.pause(0.001)
+            #plt.pause(0.001)
+            
+            # Iterate over frames, saving each one
+            for i in range(NUM_FRAMES):
+                # Plot your frame
+                # (Make sure to update data if necessary)
+                plt.pause(0.001)  # Pause to let the plot update
+                # Save the plot as an image
+                filename = f"frame_{i:03d}.png"
+                plt.savefig(filename)
+                # Open the saved image and append to frames list
+                frames.append(Image.open(filename))
+
+            # Save frames as GIF
+            frames[0].save("animation.gif", save_all=True, append_images=frames[1:], optimize=False, duration=100, loop=0)
         else:
             print("AH oHHH")
             continue
